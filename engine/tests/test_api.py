@@ -1,7 +1,8 @@
+import os
 import requests
 import sys
 
-BASE_URL = "http://127.0.0.1:8000/api/v1"
+BASE_URL = os.getenv("TEST_BASE_URL", "http://127.0.0.1:8000/api/v1")
 
 def print_banner(title):
     print("\n" + "=" * 65)

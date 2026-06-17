@@ -16,7 +16,8 @@ class ScoreRequest(BaseModel):
     total_bills_due: int = Field(..., ge=0)
     qr_transaction_consistency: float = Field(..., ge=0.0, le=1.0)
     airtime_topup_frequency: float = Field(..., ge=0.0, le=1.0)
-    quiz_answers: Optional[List[int]] = None
+    quiz_answers: List[int] | None = None
+    requested_loan_amount: float | None = None
 
 class ScoreResponse(BaseModel):
     merchant_id: str
@@ -27,6 +28,9 @@ class ScoreResponse(BaseModel):
     gate_status: str
     explanations: List[ExplanationItem]
     ai_summary: Optional[str] = None
+    ml_band: Optional[str] = None
+    ml_confidence: Optional[float] = None
+    ml_shap_factors: Optional[List[Dict]] = None
 
 # ==========================================
 # /graph ENDPOINT SCHEMAS
@@ -52,28 +56,6 @@ class GraphResponse(BaseModel):
 # /fairness ENDPOINT SCHEMAS
 # ==========================================
 
-class FairnessResponse(BaseModel):
-    groups: List[str]
-    before_disparity: Dict[str, float]
-    after_disparity: Dict[str, float]
-    note: str
-    
-    
-# (Keep your existing imports and code at the top...)
-
-class ScoreRequest(BaseModel):
-    merchant_id: str
-    months_active: int
-    bills_paid_on_time: int
-    total_bills_due: int
-    qr_transaction_consistency: float
-    airtime_topup_frequency: float
-    quiz_answers: List[int] | None = None
-    requested_loan_amount: float | None = None # <-- ADDED FOR FRAUD GATE
-
-# ... (Keep your existing Response models) ...
-
-# ADD THIS TO THE VERY BOTTOM:
 class FairnessResponse(BaseModel):
     groups: List[str]
     before: Dict[str, float]

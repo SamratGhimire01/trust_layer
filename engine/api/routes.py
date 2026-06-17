@@ -6,7 +6,10 @@ from fastapi import APIRouter, HTTPException
 from api.schemas import ScoreRequest, ScoreResponse, ExplanationItem, GraphResponse, FairnessResponse
 from src.scoring import run_scoring_engine
 from src.graph import process_social_graph
-from src.fairness import generate_fairness_summary, compute_fairness_metrics
+from src.fairness import compute_fairness_metrics
+from src.llm_agent import financial_agent
+from src.ml_model import predict_risk
+
 
 router = APIRouter(prefix="/api/v1", tags=["TrustLayer Core"])
 
@@ -45,10 +48,34 @@ async def calculate_merchant_score(payload: ScoreRequest):
                 trust_score = node["trust"]
                 break
                 
-        # 3. FUSE THE SCORES (0.8 Personal + 0.2 Graph)
-        # Trust is usually 0.0 to 1.0, scale it to 1000 for the formula
+        # =================================================================
+        # LAYER 3: Machine Learning Framework Layer (XGBoost + SHAP Engine)
+        # =================================================================
+        
+        # Build features safely extracting properties from incoming payload schemas
+        ml_features = {
+            "months_active": payload.months_active,
+            "bill_payment_ratio": payload.bills_paid_on_time / max(payload.total_bills_due, 1),
+            "qr_transaction_consistency": getattr(payload, 'qr_transaction_consistency', 0.8),
+            "airtime_topup_frequency": getattr(payload, 'airtime_topup_frequency', 0.7),
+            "psychometric_score": sum(answers) / max(len(answers), 1) if answers else 4.0,
+            "network_trust_score": float(trust_score),
+            "avg_transaction_value": getattr(payload, 'avg_transaction_value', 15000),
+            "transaction_volatility": getattr(payload, 'transaction_volatility', 0.2),
+            "days_since_last_transaction": getattr(payload, 'days_since_last_transaction', 3),
+            "community_fraud_flag": 1 if any(n.get("id") == payload.merchant_id and n.get("fraud") for n in graph_result.get("nodes", [])) else 0
+        }
+
+        # Calculate prediction results + SHAP metrics matrix arrays
+        ml_result = predict_risk(ml_features)
+
+        # Map ML classifications into explicit risk scores
+        band_to_score = {"Refused": 200, "Silver": 425, "Gold": 625, "Platinum": 825}
+        ml_score = band_to_score[ml_result["ml_band"]]
+
+        # 3-WAY FUSION FORMULA: (60% Math Formula + 20% Graph Network + 20% ML Variant)
         scaled_trust = trust_score * 1000
-        final_fused_score = int((0.8 * base_score) + (0.2 * scaled_trust))
+        final_fused_score = int((0.6 * base_score) + (0.2 * scaled_trust) + (0.2 * ml_score))
         
         # Ensure it stays within 0-900 bounds
         final_fused_score = min(max(final_fused_score, 0), 900)
@@ -65,23 +92,38 @@ async def calculate_merchant_score(payload: ScoreRequest):
             for item in raw_explanations
         ]
         
-        # 5. Generate AI Summary
-        ai_summary = generate_fairness_summary(
-            score=final_fused_score, # Use the fused score
+        # 5. Generate AI Summary (Synchronized to feed Graph Data and ML predictions)
+        explanations_summary = ", ".join([f"{item['factor']} ({item['impact']})" for item in raw_explanations])
+        
+        ai_summary = financial_agent.generate_merchant_advisory(
+            score=final_fused_score,
             band=band,
-            explanations=raw_explanations,
-            months_active=payload.months_active
+            explanations_summary=explanations_summary,
+            months_active=payload.months_active,
+            ml_data={
+                "ml_band": ml_result["ml_band"],
+                "ml_confidence": ml_result["ml_confidence"],
+                "top_shap_factors": ml_result["top_shap_factors"]
+            },
+            graph_data={
+                "trust_score": float(trust_score),
+                "community_fraud_flag": ml_features["community_fraud_flag"]
+            }
         )
         
+        # Map output metrics safely back to response models
         return ScoreResponse(
             merchant_id=payload.merchant_id,
             score=final_fused_score,
             band=band,
             confidence=confidence,
             loan_ceiling=loan_ceiling,
-            gate_status=gate_status, # Updated Gate
+            gate_status=gate_status,
             explanations=validated_explanations,
-            ai_summary=ai_summary
+            ai_summary=ai_summary,
+            ml_band=ml_result["ml_band"],
+            ml_confidence=ml_result["ml_confidence"],
+            ml_shap_factors=ml_result["top_shap_factors"]
         )
         
     except Exception as e:
@@ -98,7 +140,6 @@ async def calculate_merchant_score(payload: ScoreRequest):
 # ==========================================
 @router.get("/graph", response_model=GraphResponse)
 async def get_social_graph():
-    # (Leave your existing get_social_graph code exactly as it is)
     try:
         base_dir = Path(__file__).resolve().parent.parent
         data_path = base_dir / "data" / "seed_data.json"
