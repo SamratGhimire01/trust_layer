@@ -72,3 +72,5 @@ df = pd.concat(data_segments, ignore_index=True)
 df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 df.to_csv("scripts/synthetic_merchants.csv", index=False)
 print(f"✅ Generated {len(df)} records")
+
+# This script creates a synthetic dataset of merchants with 11 features and a target variable 'risk_band' that categorizes them into four risk levels: refused (0), silver (1), gold (2), and platinum (3). Each profile has overlapping feature distributions to mimic real-world ambiguity in risk assessment. The final dataset is saved as 'synthetic_merchants.csv'.
